@@ -28,6 +28,34 @@ input[type="file"] {
   color: #666;
 }
 
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.tab {
+  border: 1px solid #c9d5ea;
+  background: #fff;
+  color: #204065;
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tab-active {
+  background: #1565c0;
+  border-color: #1565c0;
+  color: #fff;
+}
+
+.contracts-stack {
+  display: grid;
+  gap: 1rem;
+}
+
 .contract-card {
   background: #fff;
   border-radius: 8px;
@@ -39,6 +67,12 @@ input[type="file"] {
 .contract-card h2 {
   margin: 0 0 0.8rem;
   font-size: 1.1rem;
+}
+
+.contract-file-name {
+  margin: -0.3rem 0 0.9rem;
+  color: #4f6280;
+  font-size: 0.82rem;
 }
 
 .contract-grid {
@@ -123,6 +157,10 @@ input[type="file"] {
 .transactions-table td:nth-child(4) {
   text-align: right;
   white-space: nowrap;
+}
+
+.employer-prefix {
+  font-weight: 700;
 }
 
 .positive {

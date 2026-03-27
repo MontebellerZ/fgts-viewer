@@ -19,6 +19,10 @@ interface Transaction {
   balance: number;
 }
 
+interface TableTransaction extends Transaction {
+  employerInitials?: string;
+}
+
 interface ContractData {
   employer: string;
   admissionDate: string;
@@ -29,6 +33,19 @@ interface ContractData {
 }
 
 interface ChartPoint {
+  month: string;
+  totalBalance: number;
+  jamCredit: number;
+}
+
+interface FileViewData {
+  id: string;
+  fileName: string;
+  contractData: ContractData;
+  transactions: Transaction[];
+}
+
+interface MonthlyPoint {
   month: string;
   totalBalance: number;
   jamCredit: number;
@@ -111,13 +128,55 @@ function formatBRL(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function getEmployerInitials(employer: string): string {
+  return employer
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function getEmployerColor(initials: string): string {
+  let hash = 0;
+  for (let i = 0; i < initials.length; i++) {
+    hash = initials.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue} 78% 36%)`;
+}
+
 function parseDate(value: string): Date {
   const [day, month, year] = value.split("/").map(Number);
   return new Date(year, month - 1, day);
 }
 
-function buildChartData(transactions: Transaction[]): ChartPoint[] {
-  const monthlyMap = new Map<string, ChartPoint>();
+function monthToDate(month: string): Date {
+  const [monthNum, year] = month.split("/").map(Number);
+  return new Date(year, monthNum - 1, 1);
+}
+
+function parseDateSafe(value: string): Date | null {
+  const parts = value.split("/").map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+  const [day, month, year] = parts;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function sortTransactionsByDate(transactions: Transaction[]): Transaction[] {
+  return [...transactions].sort((a, b) => {
+    const dateA = parseDateSafe(a.date);
+    const dateB = parseDateSafe(b.date);
+    if (!dateA && !dateB) return 0;
+    if (!dateA) return 1;
+    if (!dateB) return -1;
+    return dateA.getTime() - dateB.getTime();
+  });
+}
+
+function buildMonthlyPoints(transactions: Transaction[]): MonthlyPoint[] {
+  const monthlyMap = new Map<string, MonthlyPoint>();
 
   for (const transaction of transactions) {
     const date = parseDate(transaction.date);
@@ -139,11 +198,11 @@ function buildChartData(transactions: Transaction[]): ChartPoint[] {
     monthlyMap.set(month, current);
   }
 
-  const sorted = Array.from(monthlyMap.values()).sort((a, b) => {
-    const [monthA, yearA] = a.month.split("/").map(Number);
-    const [monthB, yearB] = b.month.split("/").map(Number);
-    return new Date(yearA, monthA - 1, 1).getTime() - new Date(yearB, monthB - 1, 1).getTime();
-  });
+  return Array.from(monthlyMap.values()).sort((a, b) => monthToDate(a.month).getTime() - monthToDate(b.month).getTime());
+}
+
+function buildChartDataSingleFile(transactions: Transaction[]): ChartPoint[] {
+  const sorted = buildMonthlyPoints(transactions);
 
   let jamAccumulated = 0;
   for (const point of sorted) {
@@ -154,69 +213,195 @@ function buildChartData(transactions: Transaction[]): ChartPoint[] {
   return sorted;
 }
 
+function buildChartDataAllFiles(filesData: FileViewData[]): ChartPoint[] {
+  const perFileMonthly = filesData.map((fileData) => buildMonthlyPoints(fileData.transactions));
+
+  const allMonths = new Set<string>();
+  for (const monthlyList of perFileMonthly) {
+    for (const point of monthlyList) {
+      allMonths.add(point.month);
+    }
+  }
+
+  const sortedMonths = Array.from(allMonths).sort((a, b) => monthToDate(a).getTime() - monthToDate(b).getTime());
+
+  const chart: ChartPoint[] = [];
+  const lastBalanceByFile = new Array<number>(perFileMonthly.length).fill(0);
+
+  for (const month of sortedMonths) {
+    let monthTotalBalance = 0;
+    let monthJam = 0;
+
+    perFileMonthly.forEach((monthlyList, fileIndex) => {
+      const monthPoint = monthlyList.find((point) => point.month === month);
+      if (monthPoint) {
+        lastBalanceByFile[fileIndex] = monthPoint.totalBalance;
+        monthJam += monthPoint.jamCredit;
+      }
+      monthTotalBalance += lastBalanceByFile[fileIndex];
+    });
+
+    chart.push({
+      month,
+      totalBalance: monthTotalBalance,
+      jamCredit: monthJam,
+    });
+  }
+
+  let jamAccumulated = 0;
+  for (const point of chart) {
+    jamAccumulated += point.jamCredit;
+    point.jamCredit = jamAccumulated;
+  }
+
+  return chart;
+}
+
 function App() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [contractData, setContractData] = useState<ContractData | null>(null);
+  const [filesData, setFilesData] = useState<FileViewData[]>([]);
+  const [activeTab, setActiveTab] = useState("all");
   const [loading, setLoading] = useState(false);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const files = Array.from(fileList);
     setLoading(true);
     try {
-      const text = await extractTextFromPdf(file);
-      setContractData(parseContractData(text));
-      setTransactions(parseTransactions(text));
+      const parsedFiles = await Promise.all(
+        files.map(async (file, index) => {
+          const text = await extractTextFromPdf(file);
+          return {
+            id: `${index}-${file.name}`,
+            fileName: file.name,
+            contractData: parseContractData(text),
+            transactions: sortTransactionsByDate(parseTransactions(text)),
+          } satisfies FileViewData;
+        })
+      );
+
+      setFilesData(parsedFiles);
+      setActiveTab(parsedFiles.length > 1 ? "all" : parsedFiles[0]?.id ?? "all");
     } catch (error) {
       console.error("Failed to extract text from pdf", error);
+      setFilesData([]);
+      setActiveTab("all");
     } finally {
       setLoading(false);
     }
   }
 
-  const displayedTransactions = [...transactions].reverse();
-  const finalTotalValue = transactions.length > 0 ? transactions[transactions.length - 1].balance : null;
-  const chartData = buildChartData(transactions);
+  const hasMultipleFiles = filesData.length > 1;
+  const allTransactions = sortTransactionsByDate(
+    filesData.flatMap((fileData) => {
+      const employerInitials = getEmployerInitials(fileData.contractData.employer);
+      return fileData.transactions.map((transaction) => ({
+        ...transaction,
+        employerInitials,
+      }));
+    })
+  ) as TableTransaction[];
+
+  const selectedFile = filesData.find((fileData) => fileData.id === activeTab) ?? null;
+  const currentTransactions: TableTransaction[] =
+    hasMultipleFiles && activeTab === "all"
+      ? allTransactions
+      : selectedFile?.transactions ?? filesData[0]?.transactions ?? [];
+
+  const displayedTransactions = [...currentTransactions].reverse();
+  const chartData = hasMultipleFiles && activeTab === "all"
+    ? buildChartDataAllFiles(filesData)
+    : buildChartDataSingleFile(currentTransactions);
+
+  const sortedContracts = [...filesData].sort((a, b) => {
+    const dateA = parseDateSafe(a.contractData.admissionDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const dateB = parseDateSafe(b.contractData.admissionDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    return dateA - dateB;
+  });
+
+  const contractCards =
+    hasMultipleFiles && activeTab === "all"
+      ? sortedContracts
+      : selectedFile
+        ? [selectedFile]
+        : filesData.length === 1
+          ? [filesData[0]]
+          : [];
 
   return (
     <div className="container">
       <h1>Extrato FGTS</h1>
-      <input type="file" accept="application/pdf" onChange={handleFileChange} />
+      <input type="file" accept="application/pdf" multiple onChange={handleFileChange} />
       {loading && <p className="loading">Processando...</p>}
-      {contractData && (
-        <section className="contract-card">
-          <h2>{contractData.employer}</h2>
-          <div className="contract-grid">
-            <div className="contract-item">
-              <span>Data de admissão</span>
-              <strong>{contractData.admissionDate}</strong>
-            </div>
-            <div className="contract-item">
-              <span>Data de opção</span>
-              <strong>{contractData.optionDate}</strong>
-            </div>
-            <div className="contract-item">
-              <span>Data de afastamento</span>
-              <strong>{contractData.terminationDate}</strong>
-            </div>
-            <div className="contract-item">
-              <span>Taxa de juros anual</span>
-              <strong>{contractData.annualRate}</strong>
-            </div>
-            <div className="contract-item">
-              <span>Valor para fins recisórios</span>
-              <strong>{contractData.terminationValue}</strong>
-            </div>
-            <div className="contract-item contract-item-highlight">
-              <span>Valor total final</span>
-              <strong>{finalTotalValue === null ? "-" : formatBRL(finalTotalValue)}</strong>
-            </div>
-          </div>
-        </section>
+
+      {hasMultipleFiles && (
+        <div className="tabs" role="tablist" aria-label="Visualizações de arquivos">
+          <button
+            type="button"
+            className={`tab ${activeTab === "all" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("all")}
+          >
+            Todos os arquivos
+          </button>
+          {filesData.map((fileData) => (
+            <button
+              key={fileData.id}
+              type="button"
+              className={`tab ${activeTab === fileData.id ? "tab-active" : ""}`}
+              onClick={() => setActiveTab(fileData.id)}
+            >
+              {fileData.contractData.employer}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {contractCards.length > 0 && (
+        <div className="contracts-stack">
+          {contractCards.map((fileData) => {
+            const finalTotal =
+              fileData.transactions.length > 0
+                ? fileData.transactions[fileData.transactions.length - 1].balance
+                : null;
+
+            return (
+              <section className="contract-card" key={fileData.id}>
+                <h2>{fileData.contractData.employer}</h2>
+                <div className="contract-grid">
+                  <div className="contract-item">
+                    <span>Data de admissão</span>
+                    <strong>{fileData.contractData.admissionDate}</strong>
+                  </div>
+                  <div className="contract-item">
+                    <span>Data de opção</span>
+                    <strong>{fileData.contractData.optionDate}</strong>
+                  </div>
+                  <div className="contract-item">
+                    <span>Data de afastamento</span>
+                    <strong>{fileData.contractData.terminationDate}</strong>
+                  </div>
+                  <div className="contract-item">
+                    <span>Taxa de juros anual</span>
+                    <strong>{fileData.contractData.annualRate}</strong>
+                  </div>
+                  <div className="contract-item">
+                    <span>Valor para fins recisórios</span>
+                    <strong>{fileData.contractData.terminationValue}</strong>
+                  </div>
+                  <div className="contract-item contract-item-highlight">
+                    <span>Valor total final</span>
+                    <strong>{finalTotal === null ? "-" : formatBRL(finalTotal)}</strong>
+                  </div>
+                </div>
+              </section>
+            );
+          })}
+        </div>
       )}
       {chartData.length > 0 && (
         <section className="chart-card">
-          <h2>Evolução mensal</h2>
+          <h2>Evolução mensal {hasMultipleFiles && activeTab === "all" ? "(acumulado)" : ""}</h2>
           <div className="chart-wrapper">
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart data={chartData} margin={{ top: 16, right: 12, left: 0, bottom: 0 }}>
@@ -256,7 +441,7 @@ function App() {
           </div>
         </section>
       )}
-      {transactions.length > 0 && (
+      {currentTransactions.length > 0 && (
         <table className="transactions-table">
           <thead>
             <tr>
@@ -270,7 +455,19 @@ function App() {
             {displayedTransactions.map((t, i) => (
               <tr key={i}>
                 <td>{t.date}</td>
-                <td>{t.description}</td>
+                <td>
+                  {t.employerInitials ? (
+                    <>
+                      <span className="employer-prefix" style={{ color: getEmployerColor(t.employerInitials) }}>
+                        {t.employerInitials}
+                      </span>
+                      {" - "}
+                      {t.description}
+                    </>
+                  ) : (
+                    t.description
+                  )}
+                </td>
                 <td className={t.value < 0 ? "negative" : "positive"}>{formatBRL(t.value)}</td>
                 <td>{formatBRL(t.balance)}</td>
               </tr>
