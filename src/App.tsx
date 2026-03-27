@@ -355,7 +355,19 @@ function App() {
       ? allTransactions
       : selectedFile?.transactions ?? filesData[0]?.transactions ?? [];
 
-  const displayedTransactions = [...currentTransactions].reverse();
+  const tableTransactions: TableTransaction[] =
+    hasMultipleFiles && activeTab === "all"
+      ? currentTransactions.reduce<TableTransaction[]>((acc, transaction) => {
+          const previousBalance = acc.length > 0 ? acc[acc.length - 1].balance : 0;
+          acc.push({
+            ...transaction,
+            balance: previousBalance + transaction.value,
+          });
+          return acc;
+        }, [])
+      : currentTransactions;
+
+  const displayedTransactions = [...tableTransactions].reverse();
   const chartData = hasMultipleFiles && activeTab === "all"
     ? buildChartDataAllFiles(filesData)
     : buildChartDataSingleFile(currentTransactions);
