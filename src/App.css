@@ -170,3 +170,44 @@ input[type="file"] {
 .negative {
   color: #c62828;
 }
+
+.chart-tooltip {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  min-width: 210px;
+  font-size: 0.875rem;
+}
+
+.chart-tooltip-month {
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: #1b2a45;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.chart-tooltip-row:last-child {
+  margin-bottom: 0;
+}
+
+.chart-tooltip-label {
+  font-weight: 600;
+}
+
+.chart-tooltip-value {
+  color: #1b2a45;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-saldo { color: #1f77ff; }
+.chart-tooltip-juros-totais { color: #16a34a; }
+.chart-tooltip-credito-mes { color: #7e22ce; }
+.chart-tooltip-juros-mes { color: #7c2d12; }

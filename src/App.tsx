@@ -35,7 +35,9 @@ interface ContractData {
 interface ChartPoint {
   month: string;
   totalBalance: number;
-  jamCredit: number;
+  jamCredit: number; // acumulado (total corrido)
+  creditMonth: number; // créditos não-JAM do mês
+  jamMonth: number; // crédito JAM só do mês
 }
 
 interface FileViewData {
@@ -48,7 +50,8 @@ interface FileViewData {
 interface MonthlyPoint {
   month: string;
   totalBalance: number;
-  jamCredit: number;
+  jamMonth: number; // crédito JAM só do mês
+  creditMonth: number; // créditos não-JAM do mês
 }
 
 async function extractTextFromPdf(file: File): Promise<string> {
@@ -186,13 +189,16 @@ function buildMonthlyPoints(transactions: Transaction[]): MonthlyPoint[] {
     const current = monthlyMap.get(month) ?? {
       month,
       totalBalance: transaction.balance,
-      jamCredit: 0,
+      jamMonth: 0,
+      creditMonth: 0,
     };
 
     current.totalBalance = transaction.balance;
 
     if (/^CREDITO\s+DE\s+JAM\b/i.test(transaction.description) && transaction.value > 0) {
-      current.jamCredit += transaction.value;
+      current.jamMonth += transaction.value;
+    } else if (transaction.value > 0) {
+      current.creditMonth += transaction.value;
     }
 
     monthlyMap.set(month, current);
@@ -205,12 +211,16 @@ function buildChartDataSingleFile(transactions: Transaction[]): ChartPoint[] {
   const sorted = buildMonthlyPoints(transactions);
 
   let jamAccumulated = 0;
-  for (const point of sorted) {
-    jamAccumulated += point.jamCredit;
-    point.jamCredit = jamAccumulated;
-  }
-
-  return sorted;
+  return sorted.map((point) => {
+    jamAccumulated += point.jamMonth;
+    return {
+      month: point.month,
+      totalBalance: point.totalBalance,
+      jamCredit: jamAccumulated,
+      creditMonth: point.creditMonth,
+      jamMonth: point.jamMonth,
+    };
+  });
 }
 
 function buildChartDataAllFiles(filesData: FileViewData[]): ChartPoint[] {
@@ -231,12 +241,14 @@ function buildChartDataAllFiles(filesData: FileViewData[]): ChartPoint[] {
   for (const month of sortedMonths) {
     let monthTotalBalance = 0;
     let monthJam = 0;
+    let monthCredit = 0;
 
     perFileMonthly.forEach((monthlyList, fileIndex) => {
       const monthPoint = monthlyList.find((point) => point.month === month);
       if (monthPoint) {
         lastBalanceByFile[fileIndex] = monthPoint.totalBalance;
-        monthJam += monthPoint.jamCredit;
+        monthJam += monthPoint.jamMonth;
+        monthCredit += monthPoint.creditMonth;
       }
       monthTotalBalance += lastBalanceByFile[fileIndex];
     });
@@ -245,16 +257,50 @@ function buildChartDataAllFiles(filesData: FileViewData[]): ChartPoint[] {
       month,
       totalBalance: monthTotalBalance,
       jamCredit: monthJam,
+      creditMonth: monthCredit,
+      jamMonth: monthJam,
     });
   }
 
   let jamAccumulated = 0;
   for (const point of chart) {
-    jamAccumulated += point.jamCredit;
+    jamAccumulated += point.jamMonth;
     point.jamCredit = jamAccumulated;
   }
 
   return chart;
+}
+
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload: ChartPoint }>;
+  label?: string;
+}
+
+function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="chart-tooltip">
+      <div className="chart-tooltip-month">{label}</div>
+      <div className="chart-tooltip-row">
+        <span className="chart-tooltip-label chart-tooltip-saldo">Saldo</span>
+        <span className="chart-tooltip-value">{formatBRL(d.totalBalance)}</span>
+      </div>
+      <div className="chart-tooltip-row">
+        <span className="chart-tooltip-label chart-tooltip-juros-totais">Juros totais</span>
+        <span className="chart-tooltip-value">{formatBRL(d.jamCredit)}</span>
+      </div>
+      <div className="chart-tooltip-row">
+        <span className="chart-tooltip-label chart-tooltip-credito-mes">Crédito no mês</span>
+        <span className="chart-tooltip-value">{formatBRL(d.creditMonth)}</span>
+      </div>
+      <div className="chart-tooltip-row">
+        <span className="chart-tooltip-label chart-tooltip-juros-mes">Juros no mês</span>
+        <span className="chart-tooltip-value">{formatBRL(d.jamMonth)}</span>
+      </div>
+    </div>
+  );
 }
 
 function App() {
@@ -418,12 +464,12 @@ function App() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
                 <YAxis tickFormatter={(value) => `R$ ${Number(value).toLocaleString("pt-BR")}`} />
-                <Tooltip formatter={(value) => formatBRL(Number(value))} />
+                <Tooltip content={<ChartTooltip />} />
                 <Legend />
                 <Area
                   type="monotone"
                   dataKey="totalBalance"
-                  name="Saldo total"
+                  name="Saldo"
                   stroke="#1f77ff"
                   fill="url(#totalGradient)"
                   strokeWidth={2}
@@ -431,7 +477,7 @@ function App() {
                 <Area
                   type="monotone"
                   dataKey="jamCredit"
-                  name="Crédito de JAM (acumulado)"
+                  name="Juros totais"
                   stroke="#16a34a"
                   fill="url(#jamGradient)"
                   strokeWidth={2}
