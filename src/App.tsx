@@ -1,6 +1,16 @@
 import { useState } from "react";
 import "./App.css";
 import { extractText } from "unpdf";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 interface Transaction {
   date: string;
@@ -16,6 +26,12 @@ interface ContractData {
   terminationDate: string;
   annualRate: string;
   terminationValue: string;
+}
+
+interface ChartPoint {
+  month: string;
+  totalBalance: number;
+  jamCredit: number;
 }
 
 async function extractTextFromPdf(file: File): Promise<string> {
@@ -95,6 +111,49 @@ function formatBRL(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function parseDate(value: string): Date {
+  const [day, month, year] = value.split("/").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function buildChartData(transactions: Transaction[]): ChartPoint[] {
+  const monthlyMap = new Map<string, ChartPoint>();
+
+  for (const transaction of transactions) {
+    const date = parseDate(transaction.date);
+    if (Number.isNaN(date.getTime())) continue;
+
+    const month = `${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
+    const current = monthlyMap.get(month) ?? {
+      month,
+      totalBalance: transaction.balance,
+      jamCredit: 0,
+    };
+
+    current.totalBalance = transaction.balance;
+
+    if (/^CREDITO\s+DE\s+JAM\b/i.test(transaction.description) && transaction.value > 0) {
+      current.jamCredit += transaction.value;
+    }
+
+    monthlyMap.set(month, current);
+  }
+
+  const sorted = Array.from(monthlyMap.values()).sort((a, b) => {
+    const [monthA, yearA] = a.month.split("/").map(Number);
+    const [monthB, yearB] = b.month.split("/").map(Number);
+    return new Date(yearA, monthA - 1, 1).getTime() - new Date(yearB, monthB - 1, 1).getTime();
+  });
+
+  let jamAccumulated = 0;
+  for (const point of sorted) {
+    jamAccumulated += point.jamCredit;
+    point.jamCredit = jamAccumulated;
+  }
+
+  return sorted;
+}
+
 function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [contractData, setContractData] = useState<ContractData | null>(null);
@@ -117,6 +176,7 @@ function App() {
 
   const displayedTransactions = [...transactions].reverse();
   const finalTotalValue = transactions.length > 0 ? transactions[transactions.length - 1].balance : null;
+  const chartData = buildChartData(transactions);
 
   return (
     <div className="container">
@@ -151,6 +211,48 @@ function App() {
               <span>Valor total final</span>
               <strong>{finalTotalValue === null ? "-" : formatBRL(finalTotalValue)}</strong>
             </div>
+          </div>
+        </section>
+      )}
+      {chartData.length > 0 && (
+        <section className="chart-card">
+          <h2>Evolução mensal</h2>
+          <div className="chart-wrapper">
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={chartData} margin={{ top: 16, right: 12, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="totalGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#1f77ff" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#1f77ff" stopOpacity={0.04} />
+                  </linearGradient>
+                  <linearGradient id="jamGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#16a34a" stopOpacity={0.5} />
+                    <stop offset="95%" stopColor="#16a34a" stopOpacity={0.08} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis tickFormatter={(value) => `R$ ${Number(value).toLocaleString("pt-BR")}`} />
+                <Tooltip formatter={(value) => formatBRL(Number(value))} />
+                <Legend />
+                <Area
+                  type="monotone"
+                  dataKey="totalBalance"
+                  name="Saldo total"
+                  stroke="#1f77ff"
+                  fill="url(#totalGradient)"
+                  strokeWidth={2}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="jamCredit"
+                  name="Crédito de JAM (acumulado)"
+                  stroke="#16a34a"
+                  fill="url(#jamGradient)"
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </section>
       )}

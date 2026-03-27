@@ -69,6 +69,24 @@ input[type="file"] {
   background: #e7f1ff;
 }
 
+.chart-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.chart-card h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.1rem;
+}
+
+.chart-wrapper {
+  width: 100%;
+  height: 320px;
+}
+
 .transactions-table {
   width: 100%;
   border-collapse: collapse;
