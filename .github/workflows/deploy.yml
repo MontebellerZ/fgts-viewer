@@ -27,11 +27,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: "npm"
+          cache: "yarn"
       - name: Install dependencies
-        run: npm install
+        run: yarn install --frozen-lockfile
       - name: Build
-        run: npm run build && cp ./dist/index.html ./dist/404.html
+        run: yarn build && cp ./dist/index.html ./dist/404.html
       - name: Setup Pages
         uses: actions/configure-pages@v5
         with:
