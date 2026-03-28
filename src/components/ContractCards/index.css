@@ -1,0 +1,45 @@
+.contracts-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.contract-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.contract-card h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.1rem;
+}
+
+.contract-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.contract-item {
+  background: #f6f8fc;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+}
+
+.contract-item span {
+  display: block;
+  color: #54627a;
+  font-size: 0.78rem;
+  margin-bottom: 0.2rem;
+}
+
+.contract-item strong {
+  font-size: 0.9rem;
+  color: #1b2a45;
+}
+
+.contract-item-highlight {
+  background: #e7f1ff;
+}
