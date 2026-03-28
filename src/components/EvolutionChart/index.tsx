@@ -9,22 +9,21 @@ import {
   YAxis,
 } from "recharts";
 import type { ChartPoint } from "../../types";
+import { formatBRL } from "../../utils/format";
 import "./index.css";
 
 interface EvolutionChartProps {
   chartData: ChartPoint[];
   showAccumulatedLabel: boolean;
-  formatBRL: (value: number) => string;
 }
 
 interface ChartTooltipProps {
   active?: boolean;
   payload?: Array<{ payload: ChartPoint }>;
   label?: string;
-  formatBRL: (value: number) => string;
 }
 
-function ChartTooltip({ active, payload, label, formatBRL }: ChartTooltipProps) {
+function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
 
@@ -51,7 +50,7 @@ function ChartTooltip({ active, payload, label, formatBRL }: ChartTooltipProps) 
   );
 }
 
-export function EvolutionChart({ chartData, showAccumulatedLabel, formatBRL }: EvolutionChartProps) {
+export function EvolutionChart({ chartData, showAccumulatedLabel }: EvolutionChartProps) {
   if (chartData.length === 0) return null;
 
   return (
@@ -73,7 +72,7 @@ export function EvolutionChart({ chartData, showAccumulatedLabel, formatBRL }: E
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="month" />
             <YAxis tickFormatter={(value) => `R$ ${Number(value).toLocaleString("pt-BR")}`} />
-            <Tooltip content={<ChartTooltip formatBRL={formatBRL} />} />
+            <Tooltip content={<ChartTooltip />} />
             <Legend />
             <Area
               type="monotone"

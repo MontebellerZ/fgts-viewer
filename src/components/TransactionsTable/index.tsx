@@ -1,13 +1,13 @@
 import type { TableTransaction } from "../../types";
+import { getEmployerColor } from "../../utils/employer";
+import { formatBRL } from "../../utils/format";
 import "./index.css";
 
 interface TransactionsTableProps {
   transactions: TableTransaction[];
-  formatBRL: (value: number) => string;
-  getEmployerColor: (initials: string) => string;
 }
 
-export function TransactionsTable({ transactions, formatBRL, getEmployerColor }: TransactionsTableProps) {
+export function TransactionsTable({ transactions }: TransactionsTableProps) {
   if (transactions.length === 0) return null;
 
   return (
@@ -21,8 +21,8 @@ export function TransactionsTable({ transactions, formatBRL, getEmployerColor }:
         </tr>
       </thead>
       <tbody>
-        {transactions.map((t, i) => (
-          <tr key={i}>
+        {transactions.map((t) => (
+          <tr key={`${t.date}-${t.description}-${t.value}`}>
             <td>{t.date}</td>
             <td>
               {t.employerInitials ? (

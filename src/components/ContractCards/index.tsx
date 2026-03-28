@@ -1,12 +1,12 @@
 import type { FileViewData } from "../../types";
+import { formatBRL } from "../../utils/format";
 import "./index.css";
 
 interface ContractCardsProps {
   cards: FileViewData[];
-  formatBRL: (value: number) => string;
 }
 
-export function ContractCards({ cards, formatBRL }: ContractCardsProps) {
+export function ContractCards({ cards }: ContractCardsProps) {
   if (cards.length === 0) return null;
 
   return (

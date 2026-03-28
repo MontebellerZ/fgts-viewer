@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { ContractCards } from "./components/ContractCards";
 import { EvolutionChart } from "./components/EvolutionChart";
@@ -8,18 +8,47 @@ import { ViewTabs } from "./components/ViewTabs";
 import type { FileViewData, TableTransaction } from "./types";
 import { buildChartDataAllFiles, buildChartDataSingleFile } from "./utils/chart";
 import { parseContractData } from "./utils/contract";
-import { parseDateSafe, sortTransactionsByDate } from "./utils/date";
-import { getEmployerColor, getEmployerInitials } from "./utils/employer";
-import { formatBRL } from "./utils/format";
+import { createFileId } from "./utils/id";
 import { extractTextFromPdf } from "./utils/pdf";
+import { loadStoredFilesData, saveStoredFilesData } from "./utils/storage";
 import { parseTransactions } from "./utils/transactions";
+import {
+  ALL_TAB_ID,
+  buildAllTransactions,
+  buildTransactionsWithRunningBalance,
+  findFileIdByEmployer,
+  getContractCards,
+  getCurrentTransactions,
+  mergeFilesByEmployer,
+  sortContractsByAdmissionDate,
+} from "./utils/viewData";
 
 function App() {
-  const [filesData, setFilesData] = useState<FileViewData[]>([]);
-  const [activeTab, setActiveTab] = useState("all");
+  const [filesData, setFilesData] = useState<FileViewData[]>(() => loadStoredFilesData());
+  const [activeTab, setActiveTab] = useState(ALL_TAB_ID);
   const [loading, setLoading] = useState(false);
 
-  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    saveStoredFilesData(filesData);
+  }, [filesData]);
+
+  useEffect(() => {
+    if (filesData.length === 0) {
+      if (activeTab !== ALL_TAB_ID) {
+        setActiveTab(ALL_TAB_ID);
+      }
+      return;
+    }
+
+    const activeTabExists = filesData.some((fileData) => fileData.id === activeTab);
+    if (activeTabExists || activeTab === ALL_TAB_ID) {
+      return;
+    }
+
+    setActiveTab(filesData.length > 1 ? ALL_TAB_ID : filesData[0].id);
+  }, [activeTab, filesData]);
+
+  const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files;
     if (!fileList || fileList.length === 0) return;
 
@@ -30,7 +59,7 @@ function App() {
         files.map(async (file, index) => {
           const text = await extractTextFromPdf(file);
           return {
-            id: `${index}-${file.name}`,
+            id: createFileId(file, index),
             fileName: file.name,
             contractData: parseContractData(text),
             transactions: parseTransactions(text),
@@ -38,65 +67,53 @@ function App() {
         })
       );
 
-      setFilesData(parsedFiles);
-      setActiveTab(parsedFiles.length > 1 ? "all" : parsedFiles[0]?.id ?? "all");
+      const mergedFiles = mergeFilesByEmployer(filesData, parsedFiles);
+      setFilesData(mergedFiles);
+
+      if (parsedFiles.length === 1) {
+        const uploadedFileId = findFileIdByEmployer(mergedFiles, parsedFiles[0].contractData.employer);
+        setActiveTab(uploadedFileId ?? (mergedFiles.length > 1 ? ALL_TAB_ID : mergedFiles[0]?.id ?? ALL_TAB_ID));
+      } else {
+        setActiveTab(mergedFiles.length > 1 ? ALL_TAB_ID : mergedFiles[0]?.id ?? ALL_TAB_ID);
+      }
     } catch (error) {
       console.error("Failed to extract text from pdf", error);
-      setFilesData([]);
-      setActiveTab("all");
     } finally {
       setLoading(false);
     }
-  }
+  }, [filesData]);
 
   const hasMultipleFiles = filesData.length > 1;
-  const allTransactions = sortTransactionsByDate(
-    filesData.flatMap((fileData) => {
-      const employerInitials = getEmployerInitials(fileData.contractData.employer);
-      return fileData.transactions.map((transaction) => ({
-        ...transaction,
-        employerInitials,
-      }));
-    })
+  const allTransactions = useMemo(() => buildAllTransactions(filesData), [filesData]);
+
+  const selectedFile = useMemo(
+    () => filesData.find((fileData) => fileData.id === activeTab) ?? null,
+    [activeTab, filesData]
   );
 
-  const selectedFile = filesData.find((fileData) => fileData.id === activeTab) ?? null;
-  const currentTransactions: TableTransaction[] =
-    hasMultipleFiles && activeTab === "all"
-      ? allTransactions
-      : selectedFile?.transactions ?? filesData[0]?.transactions ?? [];
+  const currentTransactions: TableTransaction[] = useMemo(
+    () => getCurrentTransactions({ activeTab, hasMultipleFiles, allTransactions, selectedFile, filesData }),
+    [activeTab, allTransactions, filesData, hasMultipleFiles, selectedFile]
+  );
 
-  // Ordena em ordem crescente para calcular o saldo acumulado corretamente.
-  const orderedTransactionsAsc = sortTransactionsByDate(currentTransactions);
+  const displayedTransactions = useMemo(
+    () => buildTransactionsWithRunningBalance(currentTransactions),
+    [currentTransactions]
+  );
 
-  const tableTransactions: TableTransaction[] = orderedTransactionsAsc.reduce<TableTransaction[]>((acc, transaction) => {
-    const previousBalance = acc.length > 0 ? acc[acc.length - 1].balance : 0;
-    acc.push({
-      ...transaction,
-      balance: previousBalance + transaction.value,
-    });
-    return acc;
-  }, []);
+  const chartData = useMemo(
+    () => hasMultipleFiles && activeTab === ALL_TAB_ID
+      ? buildChartDataAllFiles(filesData)
+      : buildChartDataSingleFile(currentTransactions),
+    [activeTab, currentTransactions, filesData, hasMultipleFiles]
+  );
 
-  const displayedTransactions = [...tableTransactions].reverse();
-  const chartData = hasMultipleFiles && activeTab === "all"
-    ? buildChartDataAllFiles(filesData)
-    : buildChartDataSingleFile(currentTransactions);
+  const sortedContracts = useMemo(() => sortContractsByAdmissionDate(filesData), [filesData]);
 
-  const sortedContracts = [...filesData].sort((a, b) => {
-    const dateA = parseDateSafe(a.contractData.admissionDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const dateB = parseDateSafe(b.contractData.admissionDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    return dateA - dateB;
-  });
-
-  const contractCards =
-    hasMultipleFiles && activeTab === "all"
-      ? sortedContracts
-      : selectedFile
-        ? [selectedFile]
-        : filesData.length === 1
-          ? [filesData[0]]
-          : [];
+  const contractCards = useMemo(
+    () => getContractCards({ activeTab, hasMultipleFiles, sortedContracts, selectedFile, filesData }),
+    [activeTab, filesData, hasMultipleFiles, selectedFile, sortedContracts]
+  );
 
   return (
     <div className="container">
@@ -105,19 +122,14 @@ function App() {
 
       <ViewTabs filesData={filesData} activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <ContractCards cards={contractCards} formatBRL={formatBRL} />
+      <ContractCards cards={contractCards} />
 
       <EvolutionChart
         chartData={chartData}
-        showAccumulatedLabel={hasMultipleFiles && activeTab === "all"}
-        formatBRL={formatBRL}
+        showAccumulatedLabel={hasMultipleFiles && activeTab === ALL_TAB_ID}
       />
 
-      <TransactionsTable
-        transactions={displayedTransactions}
-        formatBRL={formatBRL}
-        getEmployerColor={getEmployerColor}
-      />
+      <TransactionsTable transactions={displayedTransactions} />
     </div>
   );
 }
